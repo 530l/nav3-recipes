@@ -26,21 +26,25 @@ import kotlinx.coroutines.channels.Channel.Factory.BUFFERED
 import kotlinx.coroutines.flow.receiveAsFlow
 
 /**
- * Local for receiving results in a [ResultEventBus]
+ * CompositionLocal 对象，用于在 Compose 树中提供和访问 ResultEventBus。
  */
 object LocalResultEventBus {
+
+    // 定义一个可提供的 CompositionLocal，默认值为 null
     private val LocalResultEventBus: ProvidableCompositionLocal<ResultEventBus?> =
         compositionLocalOf { null }
 
     /**
-     * The current [ResultEventBus]
+     * 获取当前作用域中的 ResultEventBus 实例。
+     * 如果没有提供，则抛出错误。
      */
     val current: ResultEventBus
         @Composable
         get() = LocalResultEventBus.current ?: error("No ResultEventBus has been provided")
 
     /**
-     * Provides a [ResultEventBus] to the composition
+     * 提供一个 ResultEventBus 实例给子 Composable 使用。
+     * 用法：LocalResultEventBus provides myBus
      */
     infix fun provides(
         bus: ResultEventBus
@@ -48,35 +52,46 @@ object LocalResultEventBus {
         return LocalResultEventBus.provides(bus)
     }
 }
+
 /**
- * An EventBus for passing results between multiple sets of screens.
+ * 一个基于 Channel 的事件总线，用于在不同屏幕/组件之间传递一次性结果。
  *
- * It provides a solution for event based results.
+ * 设计目标：替代传统的 startActivityForResult，适用于 Compose 导航场景。
  */
 class ResultEventBus {
+
     /**
-     * Map from the result key to a channel of results.
+     * 内部存储：每个 resultKey 对应一个 Channel，用于发送/接收结果。
+     * 注意：Channel 是线程安全的，适合跨协程通信。
      */
     val channelMap: MutableMap<String, Channel<Any?>> = mutableMapOf()
 
     /**
-     * Provides a flow for the given resultKey.
+     * 获取指定 key 的结果流（Flow）。
+     * 使用 reified T 实现类型推断，但实际返回的是 Any?，需外部强转（由 ResultEffect 处理）。
      */
     inline fun <reified T> getResultFlow(resultKey: String = T::class.toString()) =
         channelMap[resultKey]?.receiveAsFlow()
 
     /**
-     * Sends a result into the channel associated with the given resultKey.
+     * 向指定 key 的 Channel 发送一个结果。
+     * 如果该 key 尚未创建 Channel，则先创建一个（容量为 BUFFERED，溢出时挂起）。
      */
     inline fun <reified T> sendResult(resultKey: String = T::class.toString(), result: T) {
         if (!channelMap.contains(resultKey)) {
-            channelMap[resultKey] = Channel(capacity = BUFFERED, onBufferOverflow = BufferOverflow.SUSPEND)
+            // 创建新 Channel：缓冲模式，溢出时 SUSPEND（避免丢失事件）
+            channelMap[resultKey] = Channel(
+                capacity = BUFFERED,
+                onBufferOverflow = BufferOverflow.SUSPEND
+            )
         }
+        // 尝试发送结果（非阻塞）
         channelMap[resultKey]?.trySend(result)
     }
 
     /**
-     * Removes all results associated with the given key from the store.
+     * 清理指定 key 的 Channel，释放资源。
+     * 通常在不再需要监听结果时调用（可选，防止内存泄漏）。
      */
     inline fun <reified T> removeResult(resultKey: String = T::class.toString()) {
         channelMap.remove(resultKey)

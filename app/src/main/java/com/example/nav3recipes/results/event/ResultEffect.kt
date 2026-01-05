@@ -20,23 +20,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 
 /**
- * An Effect to provide a result even between different screens
+ * 一个 Compose Effect，用于监听并接收跨页面的一次性结果。
  *
- * The trailing lambda provides the result from a flow of results.
+ * 它通过 [ResultEventBus] 监听指定 key 的结果流，并在收到结果时调用 [onResult]。
  *
- * @param resultEventBus the ResultEventBus to retrieve the result from. The default value
- * is read from the `LocalResultEventBus` composition local.
- * @param resultKey the key that should be associated with this effect
- * @param onResult the callback to invoke when a result is received
+ * @param resultEventBus 结果事件总线，默认从 LocalResultEventBus 获取
+ * @param resultKey 用于标识该结果的唯一键。默认使用泛型 T 的类名作为 key
+ * @param onResult 当收到类型为 T 的结果时触发的回调（suspend 函数）
  */
 @Composable
 inline fun <reified T> ResultEffect(
     resultEventBus: ResultEventBus = LocalResultEventBus.current,
-    resultKey: String = T::class.toString(),
+    resultKey: String = T::class.toString(), // 默认用类型名作 key，也可自定义
     crossinline onResult: suspend (T) -> Unit
 ) {
+    // 当 resultKey 或对应 channel 变化时，重新启动协程
     LaunchedEffect(resultKey, resultEventBus.channelMap[resultKey]) {
+        // 获取该 key 对应的结果 Flow（可能是 null）
         resultEventBus.getResultFlow<T>(resultKey)?.collect { result ->
+            // 收到结果后，调用用户传入的处理逻辑
             onResult.invoke(result as T)
         }
     }
